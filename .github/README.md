@@ -116,7 +116,7 @@ if __name__ == '__main__':
     xjoypad = XJoypad()
     for event_data in xjoypad:
         if event_data:
-            print("{name} -> {value}".format(**event_data))
+            print("{name} --> {value} --> {normalized_value}".format(**event_data))
 
         time.sleep(0.001)
 ```
@@ -134,150 +134,54 @@ import time
 from lib.modules.xjoypad import XJoypad
 
 
-class Custom_XJoypad(XJoypad):
-    """
-    Custom_XJoypad extends XJoypad, adds support for normalizing event values and dead-zone zeroing
-    """
+class XJoypad_Buffer(XJoypad):
+    """Extends `XJoypad` class with buffer and timeout features"""
 
     def __init__(self, device_index = 0, amend_settings = None, **kwargs):
-        if isinstance(amend_settings, dict):
-            super(Custom_XJoypad, self).__init__(
-                device_index = device_index,
-                amend_settings = amend_settings,
-                **kwargs)
-        else:
-            super(Custom_XJoypad, self).__init__(
-                device_index = device_index,
-                amend_settings = {
-                    'axes': {
-                        evdev.ecodes.ABS_X: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': -90, 'max': 90},
-                            'dead_zone': {'above': -10, 'bellow': 10},
-                        },
-                        evdev.ecodes.ABS_Y: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': -90, 'max': 90},
-                            'dead_zone': {'above': -10, 'bellow': 10},
-                        },
-                        evdev.ecodes.ABS_Z: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': -90, 'max': 90},
-                            'dead_zone': {'above': -10, 'bellow': 10},
-                        },
-                        evdev.ecodes.ABS_RZ: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': -90, 'max': 90},
-                            'dead_zone': {'above': -10, 'bellow': 10},
-                        },
-                        evdev.ecodes.ABS_BRAKE: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': 0, 'max': 180},
-                            'dead_zone': {'above': 0, 'bellow': 10},
-                        },
-                        evdev.ecodes.ABS_GAS: {
-                            'absolute_bounds': {'min': 0, 'max': 255},
-                            'normalize_bounds': {'min': 0, 'max': 180},
-                            'dead_zone': {'above': 0, 'bellow': 10},
-                        },
-                    },
-                },
-                **kwargs)
-
-    def axis_callback(self, event):
         """
-        Thanks be to -- [Normalizing data to certain range of values](https://stackoverflow.com/questions/48109228/)
+        Use `amend_settings` to modify select `self['sleeps']` settings
         """
-        _axis = self['axes'][event.code]
-        _event_data = super(Custom_XJoypad, self).axis_callback(event)
-        _absolute_bounds = _axis['absolute_bounds']
-        _normalize_bounds = _axis['normalize_bounds']
+        self['sleeps'] = {
+            'min': 0.001,
+            'max': 0.01,
+            'acceleration': 0.001,
+            'timeout': 120,
+            'current': 0.001,
+        }
 
-        _normalized_value = _normalize_bounds['min'] + (
-            event.value - _absolute_bounds['min']
-        ) * (
-            _normalize_bounds['max'] - _normalize_bounds['min']
-        ) / (
-            _absolute_bounds['max'] - _absolute_bounds['min']
-        )
+        super(XJoypad_Buffer, self).__init__(device_index = device_index, amend_settings = amend_settings, **kwargs)
 
-        _dead_zone_above = _axis['dead_zone']['above']
-        _dead_zone_bellow = _axis['dead_zone']['bellow']
-        if _normalized_value < _dead_zone_bellow and _normalized_value > _dead_zone_above:
-            _normalized_value = 0
+    def next(self):
+        """
+        Throws `GeneratorExit` if timeout is set and reached, otherwise returns `event_data` when available
+        """
+        while 1:
+            _event_data = super(XJoypad_Buffer, self).next()
+            if _event_data:
+                self['sleeps']['slept_start'] = None
+                self['sleeps']['current'] = self['sleeps']['min']
+                return _event_data
 
-        _event_data.update({'normalized_value': _normalized_value})
-        _axis['last_event'] = _event_data
-        return _event_data
+            if not self['sleeps'].get('slept_start'):
+                self['sleeps']['slept_start'] = time.time()
 
-    def button_callback(self, event):
-        _button = self['buttons'][event.code]
-        _event_data = super(Custom_XJoypad, self).button_callback(event)
+            if self['sleeps']['current'] < self['sleeps']['max']:
+                self['sleeps']['current'] += self['sleeps']['acceleration']
 
-        if event.value == 0:
-            _normalized_value = 'released'
-        elif event.value == 1:
-            _normalized_value = 'pressed'
-        elif event.value == 2:
-            _normalized_value = 'held'
+            if self['sleeps'].get('timeout') and self['sleeps'].get('slept_last'):
+                if self['sleeps']['slept_last'] - self['sleeps']['slept_start'] > self['sleeps']['timeout']:
+                    self.throw(GeneratorExit)
 
-        _event_data.update({'normalized_value': _normalized_value})
-        _button['last_event'] = _event_data
-        return _event_data
-
-    def dpad_callback(self, event):
-        _dpad = self['dpad'][event.code]
-        _event_data = super(Custom_XJoypad, self).dpad_callback(event)
-
-        if evdev.ecodes.ABS_HAT0X == event.code:
-            if event.value == 0:
-                if _dpad['last_event']['value'] == -1:
-                    _normalized_value = 'released-left'
-                elif _dpad['last_event']['value'] == 1:
-                    _normalized_value = 'released-right'
-                else:
-                    _normalized_value = 'released-left-right'
-            elif event.value == -1:
-                _normalized_value = 'pressed-left'
-            elif event.value == 1:
-                _normalized_value = 'pressed-right'
-
-        elif evdev.ecodes.ABS_HAT0Y == event.code:
-            if event.value == 0:
-                if _dpad['last_event']['value'] == -1:
-                    _normalized_value = 'released-up'
-                elif _dpad['last_event']['value'] == 1:
-                    _normalized_value = 'released-down'
-                else:
-                    _normalized_value = 'released-up-down'
-            elif event.value == -1:
-                _normalized_value = 'pressed-up'
-            elif event.value == 1:
-                _normalized_value = 'pressed-down'
-
-        _event_data.update({'normalized_value': _normalized_value})
-        _dpad['last_event'] = _event_data
-        return _event_data
+            self['sleeps']['slept_last'] = time.time()
+            time.sleep(self['sleeps']['current'])
 
 
 if __name__ == '__main__':
-    import time
-
-    xjoypad = Custom_XJoypad()
+    xjoypad = XJoypad_Buffer()
     for event_data in xjoypad:
-        if event_data:
-            print("Event name -> {event_name} {value} {normalized_value}".format(
-                event_name = event_data['name'],
-                value = event_data['value'],
-                normalized_value = event_data.get('normalized_value'),
-            ))
-
+        print("Event name -> {name} -- {value} -- {normalized_value}".format(**event_data))
         time.sleep(0.001)
-
 ```
-
-
-> As of versions `v0.0.2` or greater, `XJoypad` returns event data with `normalized_value` key value pares set similar to above, and with better generalization.
 
 
 ### Commit and Push

@@ -299,9 +299,10 @@ class XJoypad(dict, Iterator):
                 absolute_bounds['max'] - absolute_bounds['min']
             )
 
-    def axis_callback(self, event):
+    @staticmethod
+    def axis_callback(joy_ref, event):
         """
-        Sets `self['axes'][event.code]['last_event']` and returns dictionary parsed from `event`
+        Sets `joy_ref['axes'][event.code]['last_event']` and returns dictionary parsed from `event`
 
         ## Example output
 
@@ -316,7 +317,7 @@ class XJoypad(dict, Iterator):
                 'normalized_value': ...     # `-90` to `90` for sticks, and `0` to `180` for triggers
             }
         """
-        _axis = self['axes'][event.code]
+        _axis = joy_ref['axes'][event.code]
 
         _event_data = {
             'code': event.code,
@@ -328,7 +329,7 @@ class XJoypad(dict, Iterator):
             'value': event.value,
         }
 
-        _normalized_value = self.normalize(
+        _normalized_value = joy_ref.normalize(
             value = event.value,
             absolute_bounds = _axis['absolute_bounds'],
             desired_bounds = _axis['normalize_bounds'])
@@ -341,9 +342,10 @@ class XJoypad(dict, Iterator):
         _axis['last_event'] = _event_data
         return _event_data
 
-    def button_callback(self, event):
+    @staticmethod
+    def button_callback(joy_ref, event):
         """
-        Sets `self['buttons'][event.code]['last_event']` and returns dictionary parsed from `event`
+        Sets `joy_ref['buttons'][event.code]['last_event']` and returns dictionary parsed from `event`
 
         ## Example output
 
@@ -358,7 +360,7 @@ class XJoypad(dict, Iterator):
                 'normalized_value': ...     # `"released"`, `"pressed"`, or `"held"`
             }
         """
-        _button = self['buttons'][event.code]
+        _button = joy_ref['buttons'][event.code]
 
         _event_data = {
             'code': event.code,
@@ -382,9 +384,10 @@ class XJoypad(dict, Iterator):
         _button['last_event'] = _event_data
         return _event_data
 
-    def dpad_callback(self, event):
+    @staticmethod
+    def dpad_callback(joy_ref, event):
         """
-        Sets `self['dpad'][event.code]['last_event']` and returns dictionary parsed from `event`
+        Sets `joy_ref['dpad'][event.code]['last_event']` and returns dictionary parsed from `event`
 
         ## Example output
 
@@ -399,7 +402,7 @@ class XJoypad(dict, Iterator):
                 'normalized_value': ...     # `released` or `pressed` prefixed to; `-up`, `-down`, `-left`, or `-right`
             }
         """
-        _dpad = self['dpad'][event.code]
+        _dpad = joy_ref['dpad'][event.code]
 
         _event_data = {
             'code': event.code,
@@ -442,6 +445,7 @@ class XJoypad(dict, Iterator):
                 'time': event.timestamp(),  # `4267000555.211142`
                 'type': event.type,         # `3` AKA `evdev.ecodes.EV_ABS`
                 'value': event.value,       # `0` to `255` for generic pads
+                'normalized_value': ...     # `-90` to `90` for sticks, and `0` to `180` for triggers
             }
         """
         try:
@@ -456,13 +460,13 @@ class XJoypad(dict, Iterator):
                 pass
 
             elif event.code in self['axes'].keys():
-                return self['axes'][event.code]['callback'](event)
+                return self['axes'][event.code]['callback'](self, event)
 
             elif event.code in self['buttons'].keys():
-                return self['buttons'][event.code]['callback'](event)
+                return self['buttons'][event.code]['callback'](self, event)
 
             elif event.code in self['dpad'].keys():
-                return self['dpad'][event.code]['callback'](event)
+                return self['dpad'][event.code]['callback'](self, event)
 
     def throw(self, type = None, traceback = None):
         """
