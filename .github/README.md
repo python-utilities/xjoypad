@@ -173,12 +173,12 @@ class Custom_XJoypad(XJoypad):
                         evdev.ecodes.ABS_BRAKE: {
                             'absolute_bounds': {'min': 0, 'max': 255},
                             'normalize_bounds': {'min': 0, 'max': 180},
-                            'dead_zone': {'above': -10, 'bellow': 10},
+                            'dead_zone': {'above': 0, 'bellow': 10},
                         },
                         evdev.ecodes.ABS_GAS: {
                             'absolute_bounds': {'min': 0, 'max': 255},
                             'normalize_bounds': {'min': 0, 'max': 180},
-                            'dead_zone': {'above': -10, 'bellow': 10},
+                            'dead_zone': {'above': 0, 'bellow': 10},
                         },
                     },
                 },
@@ -275,6 +275,9 @@ if __name__ == '__main__':
         time.sleep(0.001)
 
 ```
+
+
+> As of versions `v0.0.2` or greater, `XJoypad` returns event data with `normalized_value` key value pares set similar to above, and with better generalization.
 
 
 ### Commit and Push
