@@ -42,7 +42,7 @@ class XJoypad(dict, Iterator):
     See `.next()` method for how `event_data` dictionary is built.
     """
 
-    def __init__(self, device_index = 0, amend_settings = None, **kwargs):
+    def __init__(self, device_index = None, device_name = None, amend_settings = None, **kwargs):
         """
         Initializes dictionary similar to following
 
@@ -108,7 +108,19 @@ class XJoypad(dict, Iterator):
             })
 
         """
-        self['device'] = evdev.InputDevice(evdev.list_devices()[device_index])
+        if device_index is not None:
+            self['device'] = evdev.InputDevice(evdev.list_devices()[device_index])
+        elif device_name is not None:
+            for _path in evdev.list_devices():
+                _device = evdev.InputDevice(_path)
+                if device_name == _device.name:
+                    self['device'] = _device
+                    break
+
+        if not self.get('device'):
+            self['device'] = evdev.InputDevice(evdev.list_devices()[0])
+
+        self._device_read_loop = self['device'].read_loop()
 
         self['axes'] = {
             evdev.ecodes.ABS_X: {
@@ -308,20 +320,21 @@ class XJoypad(dict, Iterator):
 
             {
                 'code': event.code,         # `0` AKA `evdev.ecodes.ABS_X`
-                'name': _axis['name'],      # `stick_left_x`
+                'name': _target['name'],    # `stick_left_x`
                 'usec': event.usec,         # `211142L`
                 'sec': event.sec,           # `4267000555L`
                 'time': event.timestamp(),  # `4267000555.211142`
                 'type': event.type,         # `3` AKA `evdev.ecodes.EV_ABS`
                 'value': event.value,       # `0` to `255` for generic pads
+                'last_event': _target['last_event'].copy()
                 'normalized_value': ...     # `-90` to `90` for sticks, and `0` to `180` for triggers
             }
         """
-        _axis = joy_ref['axes'][event.code]
+        _target = joy_ref['axes'][event.code]
 
         _event_data = {
             'code': event.code,
-            'name': _axis['name'],
+            'name': _target['name'],
             'usec': event.usec,
             'sec': event.sec,
             'time': event.timestamp(),
@@ -331,15 +344,19 @@ class XJoypad(dict, Iterator):
 
         _normalized_value = joy_ref.normalize(
             value = event.value,
-            absolute_bounds = _axis['absolute_bounds'],
-            desired_bounds = _axis['normalize_bounds'])
+            absolute_bounds = _target['absolute_bounds'],
+            desired_bounds = _target['normalize_bounds'])
 
-        if _normalized_value < _axis['dead_zone']['bellow'] and _normalized_value > _axis['dead_zone']['above']:
+        if _normalized_value < _target['dead_zone']['bellow'] and _normalized_value > _target['dead_zone']['above']:
             _normalized_value = 0
 
         _event_data['normalized_value'] = _normalized_value
+        if _target.get('last_event'):
+            _event_data['last_event'] = _target['last_event'].copy()
+        else:
+            _event_data['last_event'] = {}
 
-        _axis['last_event'] = _event_data
+        _target['last_event'] = _event_data
         return _event_data
 
     @staticmethod
@@ -351,20 +368,21 @@ class XJoypad(dict, Iterator):
 
             {
                 'code': event.code,         # `304` AKA `evdev.ecodes.BTN_A`
-                'name': _button['name'],    # `"button_a"`
+                'name': _target['name'],    # `"button_a"`
                 'usec': event.usec,         # `211142L`
                 'sec': event.sec,           # `4267000555L`
                 'time': event.timestamp(),  # `4267000555.211142`
                 'type': event.type,         # `1` AKA `evdev.ecodes.EV_KEY`
                 'value': event.value,       # `1` Pressed, `0` Released, `2` Held
+                'last_event': _target['last_event'].copy()
                 'normalized_value': ...     # `"released"`, `"pressed"`, or `"held"`
             }
         """
-        _button = joy_ref['buttons'][event.code]
+        _target = joy_ref['buttons'][event.code]
 
         _event_data = {
             'code': event.code,
-            'name': _button['name'],
+            'name': _target['name'],
             'usec': event.usec,
             'sec': event.sec,
             'time': event.timestamp(),
@@ -380,8 +398,12 @@ class XJoypad(dict, Iterator):
             _normalized_value = 'held'
 
         _event_data['normalized_value'] = _normalized_value
+        if _target.get('last_event'):
+            _event_data['last_event'] = _target['last_event'].copy()
+        else:
+            _event_data['last_event'] = {}
 
-        _button['last_event'] = _event_data
+        _target['last_event'] = _event_data
         return _event_data
 
     @staticmethod
@@ -393,20 +415,21 @@ class XJoypad(dict, Iterator):
 
             {
                 'code': event.code,         # `16` or `17` AKA `evdev.ecodes.ABS_HAT0X` and `.ABS_HAT0Y`
-                'name': _dpad['name'],      # `"dpad_x"` or `"dpad_y"`
+                'name': _target['name'],    # `"dpad_x"` or `"dpad_y"`
                 'usec': event.usec,         # `211142L`
                 'sec': event.sec,           # `4267000555L`
                 'time': event.timestamp(),  # `4267000555.211142`
                 'type': event.type,         # `1` AKA `evdev.ecodes.EV_KEY`
                 'value': event.value,       # `-1` left or up pressed, `1` right or down pressed, `0` either released
+                'last_event': _target['last_event'].copy()
                 'normalized_value': ...     # `released` or `pressed` prefixed to; `-up`, `-down`, `-left`, or `-right`
             }
         """
-        _dpad = joy_ref['dpad'][event.code]
+        _target = joy_ref['dpad'][event.code]
 
         _event_data = {
             'code': event.code,
-            'name': _dpad['name'],
+            'name': _target['name'],
             'usec': event.usec,
             'sec': event.sec,
             'time': event.timestamp(),
@@ -414,8 +437,8 @@ class XJoypad(dict, Iterator):
             'value': event.value,
         }
 
-        _pressed_suffix = _dpad['pressed_suffixes'].get(event.value)
-        _last_pressed_suffix = _dpad['pressed_suffixes'].get(_dpad['last_event'].get('value'))
+        _pressed_suffix = _target['pressed_suffixes'].get(event.value)
+        _last_pressed_suffix = _target['pressed_suffixes'].get(_target['last_event'].get('value'))
 
         if _pressed_suffix:
             _normalized_value = "pressed-{suffix}".format(suffix = _pressed_suffix)
@@ -425,8 +448,58 @@ class XJoypad(dict, Iterator):
             _normalized_value = None
 
         _event_data['normalized_value'] = _normalized_value
-        _dpad['last_event'] = _event_data
+        if _target.get('last_event'):
+            _event_data['last_event'] = _target['last_event'].copy()
+        else:
+            _event_data['last_event'] = {}
+
         return _event_data
+
+    def next_sync_buffered_events(self):
+        """
+        Returns dictionary of event types as keys, and list of event data dictionaries that occurred between `SYN`s
+
+        ## Example output
+
+            {
+                'axes': {},
+                'buttons': {},
+                'dpad': {},
+                'syn_event': None
+            }
+        """
+        events = {
+            'axes': {},
+            'buttons': {},
+            'dpad': {},
+            'syn_event': None
+        }
+
+        for event in self._device_read_loop:
+            if not event:
+                continue
+
+            if event.type == evdev.ecodes.EV_SYN:
+                events['syn_event'] = event
+                return events
+            elif event.type != evdev.ecodes.EV_KEY and event.type != evdev.ecodes.EV_ABS:
+                continue
+
+            if event.code in self['axes'].keys():
+                _category = 'axes'
+
+            elif event.code in self['buttons'].keys():
+                _category = 'buttons'
+
+            elif event.code in self['dpad'].keys():
+                _category = 'dpad'
+            else:
+                continue
+
+            if type(events[_category].get(event.code)) is not list:
+                events[_category][event.code] = []
+
+            events[_category][event.code].append(self[_category][event.code]['callback'](self, event))
 
     def next(self):
         """
@@ -449,7 +522,8 @@ class XJoypad(dict, Iterator):
             }
         """
         try:
-            event = self['device'].read_one()
+            # event = self['device'].read_one()
+            event = self._device_read_loop.next()
         except IOError as e:
             self.throw(GeneratorExit)
         else:
@@ -481,7 +555,7 @@ class XJoypad(dict, Iterator):
 if __name__ == '__main__':
     import time
 
-    xjoypad = XJoypad()
+    xjoypad = XJoypad(device_index = 0)
     for event_data in xjoypad:
         if event_data:
             print("{name} --> {value} --> {normalized_value}".format(**event_data))
